@@ -2,7 +2,7 @@ name: astrbot_plugin_token_meter
 display_name: TokenLedger
 desc: TokenLedger —— 把机器人每一次对话花掉的 token 都记成一笔账：输入、输出、缓存命中各记各的。今天花了多少、这周花了多少、哪个群最费、哪个模型最贵、哪几次是它主动找上来的，面板「扩展功能」里点开就能看，不用发任何指令；也支持 /用量 在群里直接问。
 short_desc: 每次对话花了多少 token
-version: v1.1.0
+version: v1.1.1
 author: shierqiuxe
 repo: "https://github.com/shierqiuxe/TokenLedger-AstrBot-"
 astrbot_version: ">=4.4,<5"
