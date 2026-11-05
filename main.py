@@ -36,7 +36,7 @@ AstrBot 每次模型回复完会发一个 OnLLMResponse 事件，回复对象上
 import json
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -118,13 +118,77 @@ def _现在() -> float:
     return time.time()
 
 
+# None = 跟系统本地时区走；配置里填了时区就换成那个
+_时区: Optional[Any] = None
+
+
+def _设时区(值: Any) -> str:
+    """把配置里的时区写法变成 timezone，返回给人看的名字。
+
+    认这几种：
+        "local" / 空          跟服务器系统时区
+        "UTC"                 零时区
+        "UTC+8" / "+8"        东八区（北京时间）；负数同理
+        "Asia/Shanghai"       北京时间，等价 UTC+8
+
+    看不懂就退回系统本地。配置写错不该让账本算不明白，更不该抛给用户。
+    """
+    global _时区
+    文 = str(值 or "").strip()
+    小 = 文.lower().replace(" ", "")
+    if not 小 or 小 in ("local", "system", "默认", "本地", "系统本地"):
+        _时区 = None
+        return "系统本地"
+    if 小 in ("asia/shanghai", "beijing", "北京", "北京时间", "prc", "cst"):
+        _时区 = timezone(timedelta(hours=8))
+        return "UTC+8"
+    if 小 in ("utc", "gmt", "z", "零时区"):
+        _时区 = timezone.utc
+        return "UTC"
+    数字 = 小
+    for 头 in ("utc", "gmt"):
+        if 数字.startswith(头):
+            数字 = 数字[len(头):]
+            break
+    if 数字.startswith("+"):
+        数字 = 数字[1:]
+    try:
+        点 = float(数字)
+        if -12 <= 点 <= 14:
+            _时区 = timezone(timedelta(hours=点))
+            return "UTC%+g" % 点
+    except Exception:
+        pass
+    _时区 = None
+    return "系统本地"
+
+
+def _本地(ts: float) -> datetime:
+    """时间戳 → 配置时区的 datetime。
+
+    账本的「今天」「本周」和界面上那一列时间都走它。服务器跑在 UTC 上、
+    而人在东八区时，这一个函数就是「日期对不上」和「对上了」的分界线。
+    """
+    if _时区 is None:
+        return datetime.fromtimestamp(ts)
+    return datetime.fromtimestamp(ts, tz=_时区)
+
+
 def _日期串(ts: float) -> str:
-    """本地时区的 2026-11-05。按天切文件就靠它。"""
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    """配置时区的 2026-11-05。按天切文件就靠它。"""
+    return _本地(ts).strftime("%Y-%m-%d")
+
+
+def _日零点(日: str) -> float:
+    """把文件名里的 2026-11-05 还原成那个时区的零点时间戳。"""
+    点 = datetime.strptime(日, "%Y-%m-%d")
+    if _时区 is not None:
+        点 = 点.replace(tzinfo=_时区)
+    return 点.timestamp()
 
 
 def _今天零点(ts: Optional[float] = None) -> float:
-    点 = datetime.fromtimestamp(ts or _现在()).replace(
+    点 = _本地(ts or _现在()).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     return 点.timestamp()
@@ -132,21 +196,21 @@ def _今天零点(ts: Optional[float] = None) -> float:
 
 def _本周一零点(ts: Optional[float] = None) -> float:
     """周一算一周的头。datetime.weekday() 里周一是 0。"""
-    点 = datetime.fromtimestamp(ts or _现在()).replace(
+    点 = _本地(ts or _现在()).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     return (点 - timedelta(days=点.weekday())).timestamp()
 
 
 def _本月一号零点(ts: Optional[float] = None) -> float:
-    点 = datetime.fromtimestamp(ts or _现在()).replace(
+    点 = _本地(ts or _现在()).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     )
     return 点.timestamp()
 
 
 def _说时间(ts: float) -> str:
-    return datetime.fromtimestamp(ts).strftime("%m-%d %H:%M:%S")
+    return _本地(ts).strftime("%m-%d %H:%M:%S")
 
 
 def _说数(n: float) -> str:
@@ -154,10 +218,9 @@ def _说数(n: float) -> str:
     n = int(n or 0)
     号 = "-" if n < 0 else ""
     n = abs(n)
-    if n < 1000:
-        return 号 + str(n)
     if n < 10000:
-        return 号 + ("%.1f" % (n / 1000.0)).replace(".0", "") + "千"
+        # 一万以下就老实把数字写出来：2400 比 2.4千 好读，四位以内正好装得下
+        return 号 + str(n)
     if n < 100000000:
         万 = n / 10000.0
         if 万 >= 100:
@@ -297,6 +360,45 @@ def _是主动(event: Any) -> Optional[int]:
         # 发送者就是机器人自己，那是它往外发
         return 1
     return 0
+
+
+def _取场景(event: Any) -> Optional[str]:
+    """这条消息是群里来的还是私聊？返回「群」/「私」，看不出来给 None。
+
+    各平台写法不一样：有的在 unified_msg_origin 里带 GroupMessage /
+    FriendMessage，有的只给一个 is_private_chat()，有的干脆只给 group_id。
+    挨个试，试不出就认输 —— 界面上显示「—」，不乱猜。
+    """
+    if event is None:
+        return None
+    来源 = str(_配(event, "unified_msg_origin", "") or "").lower()
+    if "group" in 来源 or "guild" in 来源 or "channel" in 来源:
+        return "群"
+    if any(词 in 来源 for 词 in ("friend", "private", "c2c", "direct")):
+        return "私"
+    开关 = getattr(event, "is_private_chat", None)
+    if callable(开关):
+        try:
+            return "私" if 开关() else "群"
+        except Exception:
+            pass
+    群号 = ""
+    取群 = getattr(event, "get_group_id", None)
+    if callable(取群):
+        try:
+            群号 = str(取群() or "")
+        except Exception:
+            群号 = ""
+    if not 群号:
+        群号 = str(_配(event, "group_id", "") or "")
+    if 群号:
+        return "群"
+    类型 = str(_配(_配(event, "message_obj", None), "type", "") or "").lower()
+    if "group" in 类型:
+        return "群"
+    if any(词 in 类型 for 词 in ("friend", "private", "direct")):
+        return "私"
+    return None
 
 
 def _取模型名(response: Any) -> str:
@@ -457,7 +559,7 @@ class 账本:
             for 文件 in 文件们:
                 try:
                     日 = 文件.stem
-                    零点 = datetime.strptime(日, "%Y-%m-%d").timestamp()
+                    零点 = _日零点(日)
                 except Exception:
                     continue
                 if 零点 < 最早:
@@ -539,7 +641,7 @@ class 账本:
                 for 文件 in self.根.glob("*.jsonl"):
                     try:
                         日 = 文件.stem
-                        零点 = datetime.strptime(日, "%Y-%m-%d").timestamp()
+                        零点 = _日零点(日)
                     except Exception:
                         continue
                     # 文件整天都落在起点之前 → 不在这次清理范围里
@@ -583,7 +685,7 @@ class 账本:
             账["n"] += 1
         结果 = []
         for i in range(天数):
-            点 = datetime.fromtimestamp(起) + timedelta(days=i)
+            点 = _本地(起) + timedelta(days=i)
             日 = 点.strftime("%Y-%m-%d")
             账 = 桶.get(日) or 空账()
             结果.append(
@@ -605,7 +707,7 @@ class 账本:
         起 = 本周一 - timedelta(weeks=周数 - 1).total_seconds()
         桶: Dict[str, Dict[str, int]] = {}
         for 笔 in self.区间(起):
-            点 = datetime.fromtimestamp(笔.get("t") or 0)
+            点 = _本地(笔.get("t") or 0)
             周一 = (点 - timedelta(days=点.weekday())).strftime("%Y-%m-%d")
             账 = 桶.setdefault(周一, 空账())
             账["io"] += int(笔.get("io") or 0)
@@ -614,7 +716,7 @@ class 账本:
             账["n"] += 1
         结果 = []
         for i in range(周数):
-            点 = datetime.fromtimestamp(起) + timedelta(weeks=i)
+            点 = _本地(起) + timedelta(weeks=i)
             键 = 点.strftime("%Y-%m-%d")
             账 = 桶.get(键) or 空账()
             结果.append(
@@ -673,6 +775,10 @@ class TokenLedger插件(Star):
         self._模型表: Dict[str, Tuple[str, float]] = {}  # 会话 → (模型名, 时间)
         self._锁 = threading.Lock()
         self._缓存: Tuple[float, Dict[str, Any]] = (0.0, {})
+
+        # 时区必须定在「读账本」之前 —— 「今天」的日界、按天切文件全看它
+        self.时区名 = _设时区(self._配置("time_zone", "UTC+8"))
+        logger.info("[TokenLedger] 时区：%s", self.时区名)
 
         self.账 = 账本(self._数据目录(), self._整数("keep_days", 90))
         条数 = self.账.载入()
@@ -815,6 +921,9 @@ class TokenLedger插件(Star):
             发起 = _是主动(event)
             if 发起 is not None:
                 笔["k"] = 发起
+            场景 = _取场景(event)
+            if 场景:
+                笔["c"] = 场景
             if 估算:
                 笔["e"] = 1
             if self._开关("track_users", True):
@@ -838,7 +947,7 @@ class TokenLedger插件(Star):
         本周起 = _本周一零点(现在)
         上周起 = 本周起 - 7 * 86400
         本月起 = _本月一号零点(现在)
-        上月点 = datetime.fromtimestamp(本月起) - timedelta(days=1)
+        上月点 = _本地(本月起) - timedelta(days=1)
         上月起 = _本月一号零点(上月点.timestamp())
 
         全部 = self.账.快照()
@@ -876,12 +985,14 @@ class TokenLedger插件(Star):
                     + int(笔.get("o") or 0),
                     "估算": bool(笔.get("e")),
                     "主动": 笔.get("k"),
+                    "场景": 笔.get("c") or "",
                 }
             )
 
         结果 = {
             "ok": True,
             "生成于": 现在,
+            "时区": self.时区名,
             "钩子": "正常" if self._钩子挂上了 else "还没收到过回复",
             "留存天数": self.账.留存天数,
             "笔数": len(全部),
@@ -900,6 +1011,7 @@ class TokenLedger插件(Star):
             "模型": self.账.分组(近30, "m", 8),
             "会话": self.账.分组(近30, "s", 8),
             "人": self.账.分组(近30, "un", 8) if self._开关("track_users", True) else [],
+            "场景": self.账.分组(近30, "c", 4),
             "流水": 流水,
         }
         # 每张卡补上「它主动说了几句 / 你问了它几句」，前端好显示
@@ -1115,6 +1227,8 @@ class TokenLedger插件(Star):
                 "接口": self._接口状态,
                 "笔数": len(self.账.快照()),
                 "目录": str(self.账.根),
+                "时区": self.时区名,
+                "现在": _说时间(_现在()),
             }
 
         async def 清理接口(scope: str = "all", **_) -> Any:

@@ -168,13 +168,14 @@
     position: sticky; top: 0; background: rgba(10, 16, 30, .96); backdrop-filter: blur(6px);
   }
   /* 列宽定死：时间和谁固定，模型吃掉剩下的，四个数字列一样宽，别让长模型名把数字挤没 */
-  table th:nth-child(1), table td:nth-child(1) { width: 132px; }
-  table th:nth-child(2), table td:nth-child(2) { width: 132px; }
-  table th:nth-child(3), table td:nth-child(3) { width: 78px; }
-  table th:nth-child(5), table td:nth-child(5),
+  table th:nth-child(1), table td:nth-child(1) { width: 118px; }
+  table th:nth-child(2), table td:nth-child(2) { width: 62px; }
+  table th:nth-child(3), table td:nth-child(3) { width: 120px; }
+  table th:nth-child(4), table td:nth-child(4) { width: 74px; }
   table th:nth-child(6), table td:nth-child(6),
   table th:nth-child(7), table td:nth-child(7),
-  table th:nth-child(8), table td:nth-child(8) { width: 104px; }
+  table th:nth-child(8), table td:nth-child(8),
+  table th:nth-child(9), table td:nth-child(9) { width: 100px; }
   /* 列与列之间一根淡线，看着才像表格，不然是一串字 */
   table th + th, table td + td { border-left: 1px solid rgba(110, 150, 220, .07); }
 
@@ -184,7 +185,7 @@
   table td.时 { color: var(--字淡); font-variant-numeric: tabular-nums; }
   table tbody tr:nth-child(even) td { background: rgba(110, 150, 220, .035); }
   table tbody tr:hover td { background: rgba(90, 140, 220, .1); }
-  table td:nth-child(8) { color: #e6eeff; font-weight: 600; }
+  table td:nth-child(9) { color: #e6eeff; font-weight: 600; }
   .估 { color: var(--警); }
   /* 发起方：它主动找你是青的，你找它是灰的，看不出来留个破折号 */
   .它 {
@@ -192,6 +193,15 @@
     background: rgba(53, 208, 165, .16); color: #5fe0b8; letter-spacing: .04em;
   }
   .你 { color: var(--字淡); }
+  /* 场景：群聊是蓝的，私聊是紫的，扫一眼就知道这句在哪儿说的 */
+  .群聊 {
+    display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11px;
+    background: rgba(88, 148, 255, .16); color: #86b4ff; letter-spacing: .04em;
+  }
+  .私聊 {
+    display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11px;
+    background: rgba(178, 132, 255, .16); color: #c2a2ff; letter-spacing: .04em;
+  }
   .表区 { max-height: 460px; overflow: auto; border-radius: 10px;
     border: 1px solid var(--线); background: rgba(8, 13, 24, .32); }
 
@@ -252,6 +262,7 @@
         <span style="cursor:pointer" data切="模型" class="切中">模型</span>
         <span style="cursor:pointer" data切="会话">会话</span>
         <span style="cursor:pointer" data切="人">用户</span>
+        <span style="cursor:pointer" data切="场景">场景</span>
       </div>
       <div class="排" id="排行"><div class="空行">还没有数据</div></div>
     </div>
@@ -264,7 +275,7 @@
       <table>
         <thead>
           <tr>
-            <th>时间</th><th>谁</th><th>发起</th><th>模型</th>
+            <th>时间</th><th>场景</th><th>谁</th><th>发起</th><th>模型</th>
             <th class="号">输入</th>
             <th class="号">缓存</th>
             <th class="号">输出</th>
@@ -272,7 +283,7 @@
           </tr>
         </thead>
         <tbody id="流水">
-          <tr><td colspan="8" class="空行">正在翻账本…</td></tr>
+          <tr><td colspan="9" class="空行">正在翻账本…</td></tr>
         </tbody>
       </table>
     </div>
@@ -418,8 +429,8 @@ function 数(n) {
   n = Number(n || 0);
   const 号 = n < 0 ? '-' : '';
   n = Math.abs(n);
-  if (n < 1000) return 号 + String(n);
-  if (n < 1e4) return 号 + (n / 1e3).toFixed(1).replace(/\.0+$/, '') + '千';
+  // 一万以下直接写数字：2400 比 2.4千 好读，四位以内正好装得下
+  if (n < 1e4) return 号 + String(Math.round(n));
   if (n < 1e8) {
     const 万 = n / 1e4;
     if (万 >= 100) return 号 + Math.round(万) + '万';
@@ -592,7 +603,9 @@ function 画排行() {
   }
   const 最大 = Math.max(1, ...行们.map(function (r) { return r.total || 0; }));
   盒.innerHTML = 行们.map(function (r) {
-    const 名 = 当前切 === '会话' ? 短名(r.名) : (r.名 || '未知');
+    const 名 = 当前切 === '会话' ? 短名(r.名)
+              : 当前切 === '场景' ? (r.名 === '群' ? '群聊' : r.名 === '私' ? '私聊' : (r.名 || '未知'))
+              : (r.名 || '未知');
     const 宽 = Math.max(2, (r.total / 最大) * 100);
     return '<div class="排行">' +
       '<div class="排名" title="' + String(r.名).replace(/"/g, '') + '">' + 名 + '</div>' +
@@ -619,13 +632,16 @@ document.querySelectorAll('[data切]').forEach(function (el) {
 function 画流水(行们) {
   const 体 = document.getElementById('流水');
   if (!行们 || !行们.length) {
-    体.innerHTML = '<tr><td colspan="8" class="空行">账本还是空的 —— 先让机器人聊两句？</td></tr>';
+    体.innerHTML = '<tr><td colspan="9" class="空行">账本还是空的 —— 先让机器人聊两句？</td></tr>';
     return;
   }
   体.innerHTML = 行们.map(function (r) {
     const 估 = r.估算 ? '<span class="估" title="这个数是按字数估的，不是接口报的">*</span>' : '';
     return '<tr>' +
       '<td class="时">' + r.时间 + '</td>' +
+      '<td>' + (r.场景 === '群' ? '<span class="群聊">群</span>'
+                : r.场景 === '私' ? '<span class="私聊">私</span>'
+                : '<span style="color:#4d5b74">—</span>') + '</td>' +
       '<td>' + (r.谁 || '<span style="color:#4d5b74">—</span>') + '</td>' +
       '<td>' + (r.主动 === 1 ? '<span class="它">它</span>'
                 : r.主动 === 0 ? '<span class="你">你</span>'
@@ -754,6 +770,9 @@ async function 刷新(第一次) {
   画流水(数据['流水'] || []);
 
   let 尾巴 = '每 30 秒自己刷新 · 账本留 ' + (数据['留存天数'] || 90) + ' 天';
+  if (数据['时区']) {
+    尾巴 += ' · 时间按 ' + 数据['时区'];
+  }
   if (数据['估算比例'] > 0.01) {
     尾巴 += ' · 带 * 的是按字数估的';
   }

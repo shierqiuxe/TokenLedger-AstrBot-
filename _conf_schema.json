@@ -29,6 +29,12 @@
     "default": 200,
     "hint": "面板底部那张流水表最多显示这么多行。数字太大浏览器会卡，200 一般够看。"
   },
+  "time_zone": {
+    "description": "时区",
+    "type": "string",
+    "default": "UTC+8",
+    "hint": "账本上那一列时间、还有「今天/本周」的日界，都按这个时区算。填 UTC+8 是北京时间；填 local 跟服务器系统时区走；也可以填 UTC、UTC-5、Asia/Shanghai 这类。服务器在 UTC 上跑、人在东八区，就填 UTC+8，不然早上 8 点前的账会被算到前一天的账上。"
+  },
   "view_key": {
     "description": "网页访问密钥",
     "type": "string",
