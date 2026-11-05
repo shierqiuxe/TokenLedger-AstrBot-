@@ -1,0 +1,38 @@
+{
+  "auto_record": {
+    "description": "自动记账",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后每次模型回复完都悄悄记一笔，不用你操作。插件只读「这次用了多少 token」，不拦消息、不改回复、不存聊天内容。"
+  },
+  "estimate_when_missing": {
+    "description": "拿不到用量时按字数估算",
+    "type": "bool",
+    "default": true,
+    "hint": "有的模型接口不回报 token 用量。开着的话，插件会按字数粗估一个数并打上「估算」标记，账本上看得出来哪些是猜的；关掉就只记有准数的那些。"
+  },
+  "keep_days": {
+    "description": "账本留存天数",
+    "type": "int",
+    "default": 90,
+    "hint": "超过这么多天的流水会被自动清掉（按天一个文件，删起来干净）。一天几千条记录也就几百 KB，90 天一般够翻。"
+  },
+  "track_users": {
+    "description": "记下是谁用的",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后每笔账会带上说话人的昵称，面板里能看到「谁最费」。在意隐私就关掉，只按群/按模型统计。"
+  },
+  "max_records": {
+    "description": "视图里最多列多少条流水",
+    "type": "int",
+    "default": 200,
+    "hint": "面板底部那张流水表最多显示这么多行。数字太大浏览器会卡，200 一般够看。"
+  },
+  "view_key": {
+    "description": "网页访问密钥",
+    "type": "string",
+    "default": "",
+    "hint": "留空 = 不验钥匙，登录面板就能看；填了 = 网页地址里必须带 ?key=一样的值，才能拿到数据。"
+  }
+}

@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TokenLedger</title>
+<style>
+  :root {
+    --底: #070b14;
+    --卡: rgba(15, 23, 42, .72);
+    --卡2: rgba(20, 30, 54, .55);
+    --线: rgba(110, 150, 220, .16);
+    --字: #dbe6ff;
+    --字淡: #7d8cb0;
+    --入: #5b9dff;
+    --存: #35d0a5;
+    --出: #a98cff;
+    --警: #ffb454;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; min-height: 100%;
+    background: var(--底); color: var(--字);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 背景两团极淡的光，别让整页死黑 */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(46% 32% at 18% 0%, rgba(58, 92, 180, .20), transparent 70%),
+      radial-gradient(40% 30% at 88% 12%, rgba(120, 70, 190, .14), transparent 72%);
+  }
+  .包裹 { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 26px 22px 64px; }
+
+  /* ---------- 顶部 ---------- */
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .题 h1 {
+    margin: 0; font-size: 22px; font-weight: 650; letter-spacing: .08em;
+    text-shadow: 0 0 26px rgba(120, 170, 255, .35);
+  }
+  .题 p { margin: 5px 0 0; font-size: 12px; color: var(--字淡); letter-spacing: .04em; }
+  .工具 { display: flex; align-items: center; gap: 10px; }
+  .状态 {
+    font-size: 12px; color: var(--字淡); padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--线); background: var(--卡2); white-space: nowrap;
+  }
+  .状态 i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; background: #4f6b95; }
+  .状态.好 i { background: #3ee08a; box-shadow: 0 0 8px #3ee08a; }
+  .状态.坏 i { background: var(--警); }
+  button {
+    appearance: none; cursor: pointer; font: inherit; font-size: 13px;
+    padding: 6px 16px; border-radius: 999px; color: var(--字);
+    background: rgba(24, 36, 62, .8); border: 1px solid var(--线);
+  }
+  button:hover { border-color: rgba(120, 170, 255, .5); background: rgba(30, 46, 78, .9); }
+  button:active { transform: translateY(1px); }
+
+  /* ---------- 清理面板 ---------- */
+  #清板 {
+    display: none;
+    margin: 14px 0 0; padding: 12px 14px; border-radius: 12px;
+    background: rgba(255, 90, 120, .06);
+    border: 1px solid rgba(255, 110, 130, .25);
+  }
+  #清板.开 { display: block; }
+  .清板题 { font-size: 12.5px; color: #ffb3c1; margin-bottom: 10px; letter-spacing: .02em; }
+  .清板钮 { display: flex; gap: 8px; flex-wrap: wrap; }
+  .清板钮 button {
+    padding: 5px 14px; font-size: 12px; border-radius: 8px;
+    background: rgba(255, 110, 130, .1); color: #ffc9d3;
+    border: 1px solid rgba(255, 110, 130, .3);
+  }
+  .清板钮 button:hover { background: rgba(255, 110, 130, .22); border-color: rgba(255, 110, 130, .55); }
+  .清板钮 button.险 {
+    background: rgba(255, 70, 90, .9); color: #fff; border-color: transparent;
+    box-shadow: 0 0 14px rgba(255, 70, 90, .45);
+  }
+  .清板钮 button#清取消 { background: transparent; color: var(--字淡); border-color: var(--线); }
+  .清板钮 button#清取消:hover { background: rgba(120, 150, 220, .1); }
+  .清板脚 { font-size: 11.5px; color: var(--字淡); margin-top: 9px; }
+
+  /* ---------- 四张卡 ---------- */
+  .卡组 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 22px; }
+  @media (max-width: 900px) { .卡组 { grid-template-columns: repeat(2, 1fr); } }
+  .卡 {
+    position: relative; overflow: hidden; padding: 16px 18px 14px;
+    background: var(--卡); border: 1px solid var(--线); border-radius: 14px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .卡::after {
+    content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 2px;
+    background: linear-gradient(90deg, var(--入), var(--出));
+    opacity: .5;
+  }
+  .卡 .名 {
+    font-size: 12px; color: var(--字淡); letter-spacing: .1em;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .卡 .数 {
+    margin: 6px 0 2px; font-size: 30px; font-weight: 600; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .卡 .数 small { font-size: 14px; font-weight: 400; color: var(--字淡); margin-left: 4px; }
+  .卡 .细 { font-size: 12px; color: var(--字淡); display: flex; gap: 12px; flex-wrap: wrap; }
+  .卡 .细 b { font-weight: 500; color: #b8c8e8; font-variant-numeric: tabular-nums; }
+  .涨跌 { font-size: 12px; margin-left: 6px; }
+  .涨 { color: #ff8e8e; }
+  .跌 { color: #57d59b; }
+
+  /* ---------- 图表区 ---------- */
+  .双栏 { display: grid; grid-template-columns: 1.62fr 1fr; gap: 14px; margin-top: 14px; }
+  @media (max-width: 900px) { .双栏 { grid-template-columns: 1fr; } }
+  .块 {
+    background: var(--卡); border: 1px solid var(--线); border-radius: 14px; padding: 16px 18px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .块 h2 {
+    margin: 0 0 2px; font-size: 13px; font-weight: 550; letter-spacing: .08em; color: #c3d2ee;
+  }
+  .块 .说明 { font-size: 11.5px; color: var(--字淡); margin-bottom: 10px; }
+  .图例 { display: flex; gap: 14px; font-size: 12px; color: #95a5c6; margin-bottom: 6px; flex-wrap: wrap; }
+  .图例 span { display: inline-flex; align-items: center; gap: 5px; }
+  .图例 i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+  svg#柱 { width: 100%; height: 232px; display: block; overflow: visible; }
+  .柱 rect { transition: opacity .12s; }
+  .柱:hover rect { opacity: .82; }
+  .轴字 { fill: var(--字淡); font-size: 10.5px; }
+  .基线 { stroke: rgba(110, 150, 220, .18); stroke-width: 1; }
+
+  /* 悬浮提示 */
+  #提示 {
+    position: fixed; z-index: 9; pointer-events: none; opacity: 0;
+    transform: translate(-50%, -100%) translateY(-10px); transition: opacity .1s;
+    background: rgba(10, 16, 30, .96); border: 1px solid rgba(120, 170, 255, .3);
+    border-radius: 10px; padding: 8px 12px; font-size: 12px; white-space: nowrap;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .6);
+  }
+  #提示.开 { opacity: 1; }
+  #提示 b { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* ---------- 排行 ---------- */
+  .排 { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
+  .排行 { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+  .排名 {
+    font-size: 12.5px; color: #c8d5ee; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .排数 { font-size: 12px; color: var(--字淡); font-variant-numeric: tabular-nums; }
+  .条槽 { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: rgba(110, 150, 220, .1); overflow: hidden; }
+  .条 { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #3d6fd0, #5b9dff); }
+  .空行 { color: var(--字淡); font-size: 12.5px; padding: 14px 0; }
+
+  /* ---------- 流水表 ---------- */
+  table {
+    width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0;
+    margin-top: 10px; font-size: 12.5px;
+  }
+  table th, table td {
+    padding: 11px 16px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    border-bottom: 1px solid rgba(110, 150, 220, .07);
+  }
+  table th {
+    text-align: left; font-weight: 500; color: var(--字淡); font-size: 11.5px;
+    letter-spacing: .08em; border-bottom: 1px solid var(--线);
+    position: sticky; top: 0; background: rgba(10, 16, 30, .96); backdrop-filter: blur(6px);
+  }
+  /* 列宽定死：时间和谁固定，模型吃掉剩下的，四个数字列一样宽，别让长模型名把数字挤没 */
+  table th:nth-child(1), table td:nth-child(1) { width: 132px; }
+  table th:nth-child(2), table td:nth-child(2) { width: 132px; }
+  table th:nth-child(3), table td:nth-child(3) { width: 78px; }
+  table th:nth-child(5), table td:nth-child(5),
+  table th:nth-child(6), table td:nth-child(6),
+  table th:nth-child(7), table td:nth-child(7),
+  table th:nth-child(8), table td:nth-child(8) { width: 104px; }
+  /* 列与列之间一根淡线，看着才像表格，不然是一串字 */
+  table th + th, table td + td { border-left: 1px solid rgba(110, 150, 220, .07); }
+
+  table th.号 { text-align: right; }
+  table td { color: #bccbe6; }
+  table td.号 { font-variant-numeric: tabular-nums; text-align: right; }
+  table td.时 { color: var(--字淡); font-variant-numeric: tabular-nums; }
+  table tbody tr:nth-child(even) td { background: rgba(110, 150, 220, .035); }
+  table tbody tr:hover td { background: rgba(90, 140, 220, .1); }
+  table td:nth-child(8) { color: #e6eeff; font-weight: 600; }
+  .估 { color: var(--警); }
+  /* 发起方：它主动找你是青的，你找它是灰的，看不出来留个破折号 */
+  .它 {
+    display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11px;
+    background: rgba(53, 208, 165, .16); color: #5fe0b8; letter-spacing: .04em;
+  }
+  .你 { color: var(--字淡); }
+  .表区 { max-height: 460px; overflow: auto; border-radius: 10px;
+    border: 1px solid var(--线); background: rgba(8, 13, 24, .32); }
+
+  .脚 { margin-top: 22px; font-size: 11.5px; color: #56657f; text-align: center; letter-spacing: .05em; }
+  .骨架 { color: var(--字淡); padding: 40px 0; text-align: center; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="包裹">
+
+  <header>
+    <div class="题">
+      <h1>TokenLedger</h1>
+      <p id="副标题">每次对话花了多少，一笔一笔都在这儿</p>
+    </div>
+    <div class="工具">
+      <span class="状态" id="状态"><i></i><span>连接中…</span></span>
+      <button id="清理">清理数据</button>
+      <button id="刷新">刷新</button>
+    </div>
+  </header>
+
+  <div class="清板" id="清板">
+    <div class="清板题">要清哪一段？删了就找不回来了，没有回收站。</div>
+    <div class="清板钮">
+      <button id="清今" data-scope="today">今天</button>
+      <button id="清周" data-scope="week">本周</button>
+      <button id="清月" data-scope="month">本月</button>
+      <button id="清全" data-scope="all">全部</button>
+      <button id="清取消">算了</button>
+    </div>
+    <div class="清板脚" id="清板脚">点一下选中，再点一下才真删</div>
+  </div>
+
+  <div class="卡组" id="卡组">
+    <div class="卡"><div class="名">今天</div><div class="数">—</div><div class="细"></div></div>
+    <div class="卡"><div class="名">本周</div><div class="数">—</div><div class="细"></div></div>
+    <div class="卡"><div class="名">本月</div><div class="数">—</div><div class="细"></div></div>
+    <div class="卡"><div class="名">全部</div><div class="数">—</div><div class="细"></div></div>
+  </div>
+
+  <div class="双栏">
+    <div class="块">
+      <h2>最近 14 天</h2>
+      <div class="说明">鼠标停在柱子上看当天明细</div>
+      <div class="图例">
+        <span><i style="background:var(--入)"></i>正常输入</span>
+        <span><i style="background:var(--存)"></i>缓存命中</span>
+        <span><i style="background:var(--出)"></i>输出</span>
+      </div>
+      <svg id="柱" viewBox="0 0 760 232" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="块">
+      <h2>谁最费</h2>
+      <div class="说明" id="排行说明">最近 30 天</div>
+      <div class="图例" style="margin-bottom:10px">
+        <span style="cursor:pointer" data切="模型" class="切中">模型</span>
+        <span style="cursor:pointer" data切="会话">会话</span>
+        <span style="cursor:pointer" data切="人">用户</span>
+      </div>
+      <div class="排" id="排行"><div class="空行">还没有数据</div></div>
+    </div>
+  </div>
+
+  <div class="块" style="margin-top:14px">
+    <h2>逐条流水</h2>
+    <div class="说明">最近的那些对话，倒着排</div>
+    <div class="表区">
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th><th>谁</th><th>发起</th><th>模型</th>
+            <th class="号">输入</th>
+            <th class="号">缓存</th>
+            <th class="号">输出</th>
+            <th class="号">合计</th>
+          </tr>
+        </thead>
+        <tbody id="流水">
+          <tr><td colspan="8" class="空行">正在翻账本…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="脚" id="脚">数据每 30 秒自己刷新一次</div>
+</div>
+
+<div id="提示"></div>
+
+<script>
+// ===========================================================================
+// 取数：三条路，从上往下试
+//   ① 面板 bridge —— apiGet 由父页面带着登录态转发，最稳
+//   ② 面板 extensions 通配接口 —— 同源请求，浏览器自动带 Cookie
+//   ③ 旧版 /api/plug/... —— 老版本 AstrBot 或者直接开页面时兜底
+// ===========================================================================
+const 插件名 = 'astrbot_plugin_token_meter';
+
+// 失败原因一条条攒着。界面上只写得下一句，详情留给控制台和副标题。
+const 诊断 = [];
+
+// 面板的 bridge SDK 是 AstrBot 插进来的，可能比这段脚本晚一步到。
+// 所以不能在顶上存一个快照，得等它出现（最多等 3 秒）。
+async function 等桥() {
+  for (let i = 0; i < 30; i++) {
+    const b = window.AstrBotPluginView || window.AstrBotPluginPage;
+    if (b && typeof b.apiGet === 'function') {
+      try {
+        if (typeof b.ready === 'function') await b.ready();
+      } catch (_) {}
+      return b;
+    }
+    if (typeof setTimeout !== 'function') break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+}
+
+// 剥壳：外面可能套了 {status:'ok', data:{…}}，也可能什么都不套。
+// 一层层剥到有 ok 的那层为止，套几层都不怕。
+function 剥壳(包) {
+  let 当前 = 包;
+  for (let i = 0; i < 6; i++) {
+    if (!当前 || typeof 当前 !== 'object') return 当前;
+    if (当前.status && 当前.status !== 'ok' && 当前.status !== 'success') {
+      throw new Error(String(当前.message || 当前.msg || '接口说这是错误'));
+    }
+    if (当前.ok !== undefined) return 当前;
+    let 内 = null;
+    for (const k of ['data', 'result', 'payload']) {
+      if (当前[k] && typeof 当前[k] === 'object') { 内 = 当前[k]; break; }
+    }
+    if (!内) return 当前;
+    当前 = 内;
+  }
+  return 当前;
+}
+
+function 记诊断(条) {
+  诊断.push(条);
+  try { console.warn('[TokenLedger] ' + 条); } catch (_) {}
+}
+
+async function 调接口(端点) {
+  诊断.length = 0;
+
+  // ① 走面板 bridge。它带着登录态替我们转发，
+  //    面板 iframe 是 sandbox（没有 allow-same-origin），只有这条路自带凭证。
+  const 桥 = await 等桥();
+  if (桥) {
+    try {
+      const 包 = 剥壳(await 桥.apiGet(端点));
+      if (包 && 包.ok !== undefined) return 包;
+      记诊断('bridge 回来了但形状不对：' + JSON.stringify(包).slice(0, 120));
+    } catch (e) {
+      记诊断('bridge 报错：' + ((e && e.message) || e));
+    }
+  } else {
+    记诊断('没等到 window.AstrBotPluginView —— 面板版本可能太老');
+  }
+
+  // ② 直接 fetch，只当兜底。sandbox 不带同源身份，这条路多半会被挡。
+  for (const 前缀 of [
+    '/api/v1/plugins/extensions/' + 插件名 + '/',
+    '/api/plug/' + 插件名 + '/',
+    './',
+  ]) {
+    try {
+      const 回 = await fetch(前缀 + 端点, { cache: 'no-store', credentials: 'same-origin' });
+      if (!回.ok) { 记诊断(前缀 + ' → HTTP ' + 回.status); continue; }
+      const 包 = 剥壳(await 回.json());
+      if (包 && 包.ok !== undefined) return 包;
+      记诊断(前缀 + ' → 形状不对');
+    } catch (e) {
+      记诊断(前缀 + ' → ' + ((e && e.message) || e));
+    }
+  }
+  return null;
+}
+
+// POST 版，只有清理走这条路
+async function 调接口Post(端点, 体) {
+  诊断.length = 0;
+  const 桥 = await 等桥();
+  if (桥 && typeof 桥.apiPost === 'function') {
+    try {
+      const 包 = 剥壳(await 桥.apiPost(端点, 体 || {}));
+      if (包 && 包.ok !== undefined) return 包;
+      记诊断('bridge POST 回来了但形状不对');
+    } catch (e) {
+      记诊断('bridge POST 报错：' + ((e && e.message) || e));
+    }
+  }
+  for (const 前缀 of [
+    '/api/v1/plugins/extensions/' + 插件名 + '/',
+    '/api/plug/' + 插件名 + '/',
+    './',
+  ]) {
+    try {
+      const 回 = await fetch(前缀 + 端点, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(体 || {}),
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      if (!回.ok) { 记诊断(前缀 + ' → HTTP ' + 回.status); continue; }
+      const 包 = 剥壳(await 回.json());
+      if (包 && 包.ok !== undefined) return 包;
+      记诊断(前缀 + ' → 形状不对');
+    } catch (e) {
+      记诊断(前缀 + ' → ' + ((e && e.message) || e));
+    }
+  }
+  return null;
+}
+
+// ===========================================================================
+// 小工具
+// ===========================================================================
+function 数(n) {
+  n = Number(n || 0);
+  const 号 = n < 0 ? '-' : '';
+  n = Math.abs(n);
+  if (n < 1000) return 号 + String(n);
+  if (n < 1e4) return 号 + (n / 1e3).toFixed(1).replace(/\.0+$/, '') + '千';
+  if (n < 1e8) {
+    const 万 = n / 1e4;
+    if (万 >= 100) return 号 + Math.round(万) + '万';
+    return 号 + 万.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1') + '万';
+  }
+  return 号 + (n / 1e8).toFixed(2).replace(/\.0+$/, '') + '亿';
+}
+function 千分(n) {
+  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function 造(名, 属性) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 名);
+  for (const k in 属性) el.setAttribute(k, 属性[k]);
+  return el;
+}
+function 短名(s) {
+  s = String(s || '');
+  if (!s) return '未知';
+  // 会话号形如 aiocqhttp:GroupMessage:123456，显示后半截就够认了
+  const 段 = s.split(':');
+  return 段.length > 1 ? 段[段.length - 1] : s;
+}
+
+// ===========================================================================
+// 渲染：四张卡
+// ===========================================================================
+function 画卡(卡) {
+  const 组 = document.getElementById('卡组');
+  const 项 = [
+    { 名: '今天', 账: 卡['今天'], 比: 卡['昨天'], 比名: '昨天' },
+    { 名: '本周', 账: 卡['本周'], 比: 卡['上周'], 比名: '上周' },
+    { 名: '本月', 账: 卡['本月'], 比: 卡['上月'], 比名: '上月' },
+    { 名: '全部', 账: 卡['全部'], 比: null, 比名: '' },
+  ];
+  组.innerHTML = 项.map(function (t) {
+    const a = t.账 || { io: 0, ic: 0, o: 0, n: 0, total: 0 };
+    let 跌涨 = '';
+    if (t.比 && t.比.total > 0 && a.total > 0) {
+      const 差 = (a.total - t.比.total) / t.比.total * 100;
+      const 号 = 差 >= 0 ? '▲' : '▼';
+      const 类 = 差 >= 0 ? '涨' : '跌';
+      跌涨 = '<span class="涨跌 ' + 类 + '">' + 号 + Math.abs(差).toFixed(0) + '%</span>';
+    }
+    return '<div class="卡">' +
+      '<div class="名"><span>' + t.名 + '</span>' +
+        (a.主动 ? '<span class="它" title="这些是它自己先开口的">它先开口 ' + a.主动 + '</span>' : '') +
+      '</div>' +
+      '<div class="数">' + 数(a.total) + '<small>token</small>' + 跌涨 + '</div>' +
+      '<div class="细">' +
+        '<span>' + a.n + ' 次</span>' +
+        '<span>入 <b>' + 数(a.io + a.ic) + '</b></span>' +
+        '<span>出 <b>' + 数(a.o) + '</b></span>' +
+        (a.ic ? '<span>缓存 <b>' + 数(a.ic) + '</b></span>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ===========================================================================
+// 渲染：14 天柱状图（堆叠：正常输入 / 缓存 / 输出）
+// ===========================================================================
+const 柱 = document.getElementById('柱');
+const 提示 = document.getElementById('提示');
+
+function 画柱(天们) {
+  柱.innerHTML = '';
+  const 宽 = 760, 高 = 232, 左 = 6, 右 = 6, 上 = 14, 下 = 26;
+  const 可用宽 = 宽 - 左 - 右;
+  const 可用高 = 高 - 上 - 下;
+  const 最大 = Math.max(1, ...天们.map(function (d) { return d.total || 0; }));
+
+  // 三条淡淡的横线，让人看得出量级
+  for (let i = 1; i <= 3; i++) {
+    const y = 上 + 可用高 - (可用高 * i / 3);
+    柱.appendChild(造('line', {
+      x1: 左, x2: 宽 - 右, y1: y, y2: y, class: '基线',
+      'stroke-dasharray': i === 3 ? '0' : '3 5',
+    }));
+  }
+  柱.appendChild(造('line', { x1: 左, x2: 宽 - 右, y1: 上 + 可用高, y2: 上 + 可用高, class: '基线' }));
+
+  const 步 = 可用宽 / 天们.length;
+  const 柱宽 = Math.min(34, 步 * 0.58);
+
+  天们.forEach(function (d, i) {
+    const 中 = 左 + 步 * (i + 0.5);
+    const 比 = d.total / 最大;
+    const 总高 = 比 * 可用高;
+    const 底 = 上 + 可用高;
+    const g = 造('g', { class: '柱' });
+    let 已 = 0;
+
+    const 段 = [
+      { v: d.io || 0, 色: 'var(--入)' },
+      { v: d.ic || 0, 色: 'var(--存)' },
+      { v: d.o || 0, 色: 'var(--出)' },
+    ];
+    段.forEach(function (s) {
+      if (!s.v) return;
+      const h = (s.v / 最大) * 可用高;
+      g.appendChild(造('rect', {
+        x: 中 - 柱宽 / 2, y: 底 - 已 - h, width: 柱宽, height: Math.max(1, h),
+        fill: s.色, rx: Math.min(3, 柱宽 / 4),
+      }));
+      已 += h;
+    });
+
+    // 空的那天点一个极淡的底座，别让格子看起来缺了
+    if (!d.total) {
+      g.appendChild(造('rect', {
+        x: 中 - 柱宽 / 2, y: 底 - 2, width: 柱宽, height: 2,
+        fill: 'rgba(110,150,220,.16)', rx: 1,
+      }));
+    }
+
+    // 悬停热区
+    const 热 = 造('rect', {
+      x: 中 - 步 / 2, y: 上, width: 步, height: 可用高 + 6,
+      fill: 'transparent', style: 'cursor:pointer',
+    });
+    热.addEventListener('enter', function () {});
+    热.addEventListener('mouseenter', function (ev) {
+      提示.innerHTML =
+        '<div style="color:#c3d2ee;margin-bottom:4px">' + d.标签 + ' 周' + d.周几 + '</div>' +
+        '<div>合计 <b>' + 千分(d.total) + '</b> · ' + d.n + ' 次</div>' +
+        '<div style="color:var(--入)">正常输入 <b>' + 千分(d.io) + '</b></div>' +
+        '<div style="color:var(--存)">缓存命中 <b>' + 千分(d.ic) + '</b></div>' +
+        '<div style="color:var(--出)">输出 <b>' + 千分(d.o) + '</b></div>';
+      提示.classList.add('开');
+    });
+    热.addEventListener('mousemove', function (ev) {
+      提示.style.left = ev.clientX + 'px';
+      提示.style.top = ev.clientY + 'px';
+    });
+    热.addEventListener('mouseleave', function () { 提示.classList.remove('开'); });
+    g.appendChild(热);
+
+    // x 轴标签：14 个太挤，隔一个写一次，最后一天一定写
+    if (i % 2 === 1 || i === 天们.length - 1) {
+      const t = 造('text', {
+        x: 中, y: 高 - 6, 'text-anchor': 'middle', class: '轴字',
+      });
+      t.textContent = d.标签;
+      柱.appendChild(t);
+    }
+    柱.appendChild(g);
+  });
+
+  // 顶部标一下峰值，一眼知道量级
+  const 峰 = 造('text', {
+    x: 宽 - 右, y: 12, 'text-anchor': 'end', class: '轴字',
+  });
+  峰.textContent = '峰值 ' + 数(最大);
+  柱.appendChild(峰);
+}
+
+// ===========================================================================
+// 渲染：排行榜
+// ===========================================================================
+let 当前数据 = null;
+let 当前切 = '模型';
+
+function 画排行() {
+  if (!当前数据) return;
+  const 行们 = 当前数据[当前切] || [];
+  const 盒 = document.getElementById('排行');
+  if (!行们.length) {
+    盒.innerHTML = '<div class="空行">最近 30 天还没有记录</div>';
+    return;
+  }
+  const 最大 = Math.max(1, ...行们.map(function (r) { return r.total || 0; }));
+  盒.innerHTML = 行们.map(function (r) {
+    const 名 = 当前切 === '会话' ? 短名(r.名) : (r.名 || '未知');
+    const 宽 = Math.max(2, (r.total / 最大) * 100);
+    return '<div class="排行">' +
+      '<div class="排名" title="' + String(r.名).replace(/"/g, '') + '">' + 名 + '</div>' +
+      '<div class="排数">' + 数(r.total) + ' · ' + r.n + '次</div>' +
+      '<div class="条槽"><div class="条" style="width:' + 宽.toFixed(1) + '%"></div></div>' +
+    '</div>';
+  }).join('');
+}
+
+document.querySelectorAll('[data切]').forEach(function (el) {
+  el.addEventListener('click', function () {
+    当前切 = el.getAttribute('data切');
+    document.querySelectorAll('[data切]').forEach(function (x) {
+      x.style.color = x === el ? 'var(--字)' : 'var(--字淡)';
+      x.style.fontWeight = x === el ? '600' : '400';
+    });
+    画排行();
+  });
+});
+
+// ===========================================================================
+// 渲染：流水表
+// ===========================================================================
+function 画流水(行们) {
+  const 体 = document.getElementById('流水');
+  if (!行们 || !行们.length) {
+    体.innerHTML = '<tr><td colspan="8" class="空行">账本还是空的 —— 先让机器人聊两句？</td></tr>';
+    return;
+  }
+  体.innerHTML = 行们.map(function (r) {
+    const 估 = r.估算 ? '<span class="估" title="这个数是按字数估的，不是接口报的">*</span>' : '';
+    return '<tr>' +
+      '<td class="时">' + r.时间 + '</td>' +
+      '<td>' + (r.谁 || '<span style="color:#4d5b74">—</span>') + '</td>' +
+      '<td>' + (r.主动 === 1 ? '<span class="它">它</span>'
+                : r.主动 === 0 ? '<span class="你">你</span>'
+                : '<span style="color:#4d5b74">—</span>') + '</td>' +
+      '<td>' + (r.模型 || '<span style="color:#4d5b74">—</span>') + '</td>' +
+      '<td class="号">' + 千分(r.io) + '</td>' +
+      '<td class="号">' + (r.ic ? 千分(r.ic) : '<span style="color:#5c6d88">0</span>') + '</td>' +
+      '<td class="号">' + 千分(r.o) + '</td>' +
+      '<td class="号" style="color:#dbe6ff">' + 千分(r.total) + 估 + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// ===========================================================================
+// 手动清理：点两下才删，别手滑
+// ===========================================================================
+const 清范围 = { today: '今天', week: '本周', month: '本月', all: '全部' };
+const 清编号 = { today: '清今', week: '清周', month: '清月', all: '清全' };
+let 待清 = null;
+
+function 清高亮(scope) {
+  for (const k in 清编号) {
+    const 钮 = document.getElementById(清编号[k]);
+    if (!钮) continue;
+    if (k === scope) 钮.classList.add('险');
+    else 钮.classList.remove('险');
+  }
+}
+
+function 还原清钮() {
+  清高亮('');
+  const 脚 = document.getElementById('清板脚');
+  if (脚) 脚.textContent = '点一下选中，再点一下才真删';
+}
+
+function 收清板() {
+  const 板 = document.getElementById('清板');
+  if (板) 板.classList.remove('开');
+  待清 = null;
+  还原清钮();
+}
+
+async function 点清(scope) {
+  const 脚 = document.getElementById('清板脚');
+
+  // 第一下：只是选中，不改数据
+  if (待清 !== scope) {
+    待清 = scope;
+    清高亮(scope);
+    if (脚) 脚.textContent = '再点一下「' + 清范围[scope] + '」就真删 —— 删了找不回来';
+    return;
+  }
+
+  // 第二下：真删
+  待清 = null;
+  if (脚) 脚.textContent = '正在删「' + 清范围[scope] + '」…';
+  const 回 = await 调接口Post('clear/' + scope);
+  if (回 && 回.ok) {
+    if (脚) 脚.textContent = '删好了：' + 清范围[scope] + '，抹掉 ' + (回['笔'] || 0) + ' 笔';
+    刷新(false);
+    if (typeof setTimeout === 'function') setTimeout(收清板, 1600);
+  } else {
+    if (脚) 脚.textContent = '没删成：' + (诊断.join('；') || '原因不明');
+    还原清钮();
+  }
+}
+
+(function 绑清理() {
+  const 开关 = document.getElementById('清理');
+  if (开关 && 开关.addEventListener) {
+    开关.addEventListener('click', function () {
+      const 板 = document.getElementById('清板');
+      if (!板) return;
+      板.classList.toggle('开');
+      待清 = null;
+      还原清钮();
+    });
+  }
+  for (const k in 清编号) {
+    const 钮 = document.getElementById(清编号[k]);
+    if (钮 && 钮.addEventListener) {
+      钮.addEventListener('click', function () { 点清(k); });
+    }
+  }
+  const 算 = document.getElementById('清取消');
+  if (算 && 算.addEventListener) 算.addEventListener('click', 收清板);
+})();
+
+// ===========================================================================
+// 主流程
+// ===========================================================================
+async function 刷新(第一次) {
+  const 状态 = document.getElementById('状态');
+  if (第一次) 状态.innerHTML = '<i></i><span>连接中…</span>';
+
+  const 数据 = await 调接口('summary');
+  if (!数据 || !数据.ok) {
+    状态.className = '状态 坏';
+    状态.innerHTML = '<i></i><span>拿不到数据</span>';
+    const 副 = document.getElementById('副标题');
+    if (副) {
+      副.textContent = '接口没通：' + (诊断.length ? 诊断.join('；') : '不知道为啥，看控制台');
+      副.style.whiteSpace = 'normal';
+    }
+    const 脚 = document.getElementById('脚');
+    if (脚) 脚.textContent = '取数失败 —— 具体原因见上面那行，或按 F12 看控制台';
+    return;
+  }
+
+  当前数据 = 数据;
+  const 卡 = 数据.卡 || {};
+  const 今天 = 卡['今天'] || {};
+  const 钩子好 = 数据['钩子'] === '正常';
+
+  状态.className = '状态 ' + (钩子好 ? '好' : '坏');
+  状态.innerHTML = '<i></i><span>' + (钩子好 ? '记账中' : '还没收到过回复') + '</span>';
+
+  document.getElementById('副标题').textContent =
+    今天.n
+      ? '今天已经聊了 ' + 今天.n + ' 次，花掉 ' + 数(今天.total) + ' token'
+      : '今天还没聊过 —— 账本里存着 ' + 千分(数据['笔数'] || 0) + ' 笔旧账';
+
+  画卡(卡);
+  画柱(数据['近14天'] || []);
+  画排行();
+  画流水(数据['流水'] || []);
+
+  let 尾巴 = '每 30 秒自己刷新 · 账本留 ' + (数据['留存天数'] || 90) + ' 天';
+  if (数据['估算比例'] > 0.01) {
+    尾巴 += ' · 带 * 的是按字数估的';
+  }
+  document.getElementById('脚').textContent = 尾巴;
+}
+
+document.getElementById('刷新').addEventListener('click', function () { 刷新(false); });
+刷新(true);
+setInterval(function () { 刷新(false); }, 30000);
+</script>
+</body>
+</html>
